@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+
+    <script src="https://unpkg.com/pdf-lib"></script>
+    <script src="https://unpkg.com/@pdf-lib/fontkit/dist/fontkit.umd.js"></script>
+    <script src="https://unpkg.com/downloadjs@1.4.7"></script>
+  </head>
+
+  <body>
+    <iframe id="pdf" style="width: 100%; height: 800px;"></iframe>
+    <label for="file-json">JSON input</label>
+    <input type="file" name="JSON input" id="file-json">
+    <label for="file-pdf-form">PDF Form</label>
+    <input type="file" name="PDF form" id="file-pdf-form">
+    <button id="parse">Parse</button>
+  </body>
+
+  <script>
+    
+// import { PDFDocument } from 'pdf-lib';
+// import { readFile, writeFile } from 'fs/promises';
+// import { resolve } from 'path';
+// import fontkit from "@pdf-lib/fontkit"
+let jsonData, pdfDoc;
+
+async function createPdf() {
+    try {
+        // const pdfDoc = await PDFLib.PDFDocument.load(await readFile(input));
+        pdfDoc.registerFontkit(fontkit)
+
+        const url = 'https://pdf-lib.js.org/assets/ubuntu/Ubuntu-R.ttf'
+        const fontBytes = await fetch(url).then((res) => res.arrayBuffer())
+        const ubuntuFont = await pdfDoc.embedFont(fontBytes)
+
+        // const char = await parseCharacter('./gart.json')
+        const char = JSON.parse(jsonData)
+
+        console.log("Parsed JSON data", char)
+
+        const form = pdfDoc.getForm();
+        // form.getField('CharacterName').setText('Гарт')
+
+        const setF = (fieldName, value) => {
+            const field = form.getField(fieldName)
+            // console.log(field instanceof PDFLib.PDFTextField)
+            if (field instanceof PDFLib.PDFTextField)
+                field.setText(value.toString())
+            else if (field instanceof PDFLib.PDFCheckBox)
+                if (value) field.check()
+                else field.uncheck()
+        }
+
+        const calcAbMod = (abScore) => {
+            let mod = (abScore - 10) / 2
+            return mod > 0 ? '+' + mod : mod
+        }
+
+        const calcBonus = (abScore, isProf) => {
+            const abMod = (abScore - 10) / 2
+            const profBonus = char.proficiency
+            let bonus = abMod
+
+            if (isProf === 2) bonus += profBonus + profBonus
+            else if (isProf === 1 || isProf === true) bonus += profBonus
+
+            return bonus > 0 ? '+' + bonus : bonus
+        }
+
+        const getText = (lines) => {
+            try {
+                let output = ''
+                lines.forEach(line => {
+                    if (line.content) line.content.forEach(el => {
+                        if (el.type === 'text') output += el.text
+                    })
+                    if (line.type === 'paragraph') output += '\n'
+                })
+                return output
+            } catch (err) {console.log(err)}
+        }
+
+        const model = {
+            CharacterName: char.name.value,
+            ClassLevel: char.info.charClass.value,
+            Background: char.info.background.value,
+            PlayerName: char.info.playerName.value,
+            Race: char.info.race.value,
+            Alignment: char.info.alignment.value,
+            XP: char.info.experience.value,
+
+            ProfBonus: '+' + char.proficiency,
+            AC: char.vitality.ac.value,
+            Initiative: char.vitality.initiative.value > 0 ?
+                '+' + char.vitality.initiative.value :
+                char.vitality.initiative.value,
+            Speed: char.vitality.speed.value,
+            HPMax: char.vitality['hp-max'].value,
+
+            PersonalityTraits: getText(char.text.personality.value.data.content),
+            Ideals: getText(char.text.ideals.value.data.content),
+            Bonds: getText(char.text.bonds.value.data.content),
+            Flaws: getText(char.text.flaws.value.data.content),
+
+            STR: char.stats.str.score,
+            DEX: char.stats.dex.score,
+            CON: char.stats.con.score,
+            INT: char.stats.int.score,
+            WIS: char.stats.wis.score,
+            CHA: char.stats.cha.score,
+
+            // lots of bugs about stat modifiers in exported json, just recalculate
+            STRmod: calcAbMod(char.stats.str.score),
+            DEXmod: calcAbMod(char.stats.dex.score),
+            CONmod: calcAbMod(char.stats.con.score),
+            INTmod: calcAbMod(char.stats.int.score),
+            WISmod: calcAbMod(char.stats.wis.score),
+            CHamod: calcAbMod(char.stats.cha.score),
+
+            'ST Strength': calcBonus(char.stats.str.score, char.saves.str.isProf),
+            'ST Dexterity': calcBonus(char.stats.dex.score, char.saves.dex.isProf),
+            'ST Constitution': calcBonus(char.stats.con.score, char.saves.con.isProf),
+            'ST Intelligence': calcBonus(char.stats.int.score, char.saves.int.isProf),
+            'ST Wisdom': calcBonus(char.stats.wis.score, char.saves.wis.isProf),
+            'ST Charisma': calcBonus(char.stats.cha.score, char.saves.cha.isProf),
+
+            Acrobatics: calcBonus(char.stats.dex.score, char.skills.acrobatics.isProf),
+            Athletics: calcBonus(char.stats.str.score, char.skills.athletics.isProf),
+            AnimalHandling: calcBonus(char.stats.wis.score, char.skills['animal handling'].isProf),
+            Investigation: calcBonus(char.stats.int.score, char.skills.investigation.isProf),
+            Perception: calcBonus(char.stats.wis.score, char.skills.perception.isProf),
+            Survival: calcBonus(char.stats.wis.score, char.skills.survival.isProf),
+            Performance: calcBonus(char.stats.cha.score, char.skills.performance.isProf),
+            Intimidation: calcBonus(char.stats.cha.score, char.skills.intimidation.isProf),
+            History: calcBonus(char.stats.int.score, char.skills.history.isProf),
+            SleightOfHand: calcBonus(char.stats.dex.score, char.skills['sleight of hand'].isProf),
+            Arcana: calcBonus(char.stats.int.score, char.skills.arcana.isProf),
+            Medicine: calcBonus(char.stats.int.score, char.skills.medicine.isProf),
+            Deception: calcBonus(char.stats.cha.score, char.skills.deception.isProf),
+            Nature: calcBonus(char.stats.int.score, char.skills.nature.isProf),
+            Insight: calcBonus(char.stats.wis.score, char.skills.insight.isProf),
+            Religion: calcBonus(char.stats.int.score, char.skills.religion.isProf),
+            Stealth: calcBonus(char.stats.dex.score, char.skills.stealth.isProf),
+            Persuasion: calcBonus(char.stats.cha.score, char.skills.persuasion.isProf),
+
+            Passive: char.skills.perception.customPassive,
+
+            'ST STR checkBox': char.saves.str.isProf,
+            'ST DEX checkBox': char.saves.dex.isProf,
+            'ST CON checkBox': char.saves.con.isProf,
+            'ST INT checkBox': char.saves.int.isProf,
+            'ST WIS checkBox': char.saves.wis.isProf,
+            'ST CHA checkBox': char.saves.cha.isProf,
+
+            'Acrobatics checkBox': char.skills.acrobatics.isProf,
+            'Athletics checkBox': char.skills.athletics.isProf,
+            'AnimalHandling checkBox': char.skills['animal handling'].isProf,
+            'Investigation checkBox': char.skills.investigation.isProf,
+            'Perception checkBox': char.skills.perception.isProf,
+            'Survival checkBox': char.skills.survival.isProf,
+            'Performance checkBox': char.skills.performance.isProf,
+            'Intimidation checkBox': char.skills.intimidation.isProf,
+            'History checkBox': char.skills.history.isProf,
+            'SleightOfHand checkBox': char.skills['sleight of hand'].isProf,
+            'Arcana checkBox': char.skills.arcana.isProf,
+            'Medicine checkBox': char.skills.medicine.isProf,
+            'Deception checkBox': char.skills.deception.isProf,
+            'Nature checkBox': char.skills.nature.isProf,
+            'Insight checkBox': char.skills.insight.isProf,
+            'Religion checkBox': char.skills.religion.isProf,
+            'Stealth checkBox': char.skills.stealth.isProf,
+            'Persuasion checkBox': char.skills.persuasion.isProf,
+
+            'Features and Traits': getText(char.text.traits.value.data.content),
+            ProficienciesLang: getText(char.text.prof.value.data.content),
+            Equipment: getText(char.text.equipment.value.data.content),
+        }
+
+        // Object.entries(model).forEach(e => console.log(e))
+        Object.entries(model).forEach(([key, value]) => {
+            try {
+                setF(key, value)
+            } catch (err) {console.log(err)}
+        })
+
+        form.updateFieldAppearances(ubuntuFont);
+        // const pdfBytes = await pdfDoc.save();
+        // download(pdfBytes, 'filled-form.pdf', 'application/pdf')
+        const pdfDataUri = await pdfDoc.saveAsBase64({dataUri: true})
+        document.getElementById('pdf').src = pdfDataUri
+        // await writeFile(output, pdfBytes);
+
+        console.log('PDF created!');
+  } catch (err) {
+    console.log(err);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    const jsonUpload = document.getElementById('file-json')
+    const pdfFormUpload = document.getElementById('file-pdf-form')
+    const parseBtn = document.getElementById('parse')
+
+    jsonUpload.onchange = () => {
+        const json = jsonUpload.files[0]
+        const reader = new FileReader()
+        reader.readAsText(json)
+        reader.onload = () => {
+            jsonData = reader.result
+            console.log(jsonData)
+        }
+    }
+
+    pdfFormUpload.onchange = () => {
+        const pdfForm = pdfFormUpload.files[0]
+        const reader = new FileReader()
+        reader.readAsArrayBuffer(pdfForm)
+        reader.onload = async () => {
+            pdfDoc = await PDFLib.PDFDocument.load(reader.result)
+            console.log(pdfDoc)
+        }
+    }
+
+    parseBtn.addEventListener("click", _ => {
+        createPdf();
+    })
+})
+
+  </script>
+  <!-- <script type="module" src="main.js"></script> -->
+</html>
